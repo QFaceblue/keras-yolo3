@@ -1,0 +1,9 @@
+normal
+unknown
+empty
+inattention
+smoking
+usePhone
+drinking
+scratching
+fetchThings

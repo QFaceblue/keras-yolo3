@@ -35,13 +35,15 @@ def rand(a=0, b=1):
 
 def get_random_data(annotation_line, input_shape, random=True, max_boxes=20, jitter=.3, hue=.1, sat=1.5, val=1.5, proc_img=True):
     '''random preprocessing for real-time data augmentation'''
+    # split()通过指定分隔符对字符串进行切片，如果参数 num 有指定值，则分隔 num+1 个子字符串
+    # 以空格为分隔符，包含 \n, str.split(str="", num=-1).
     line = annotation_line.split()
     image = Image.open(line[0])
     iw, ih = image.size
     h, w = input_shape
     box = np.array([np.array(list(map(int,box.split(',')))) for box in line[1:]])
 
-    if not random:
+    if not random: #是否给图片加随机扰动
         # resize image
         scale = min(w/iw, h/ih)
         nw = int(iw*scale)
@@ -52,7 +54,7 @@ def get_random_data(annotation_line, input_shape, random=True, max_boxes=20, jit
         if proc_img:
             image = image.resize((nw,nh), Image.BICUBIC)
             new_image = Image.new('RGB', (w,h), (128,128,128))
-            new_image.paste(image, (dx, dy))
+            new_image.paste(image, (dx, dy)) #将缩放后的图片粘贴到生成的图片上
             image_data = np.array(new_image)/255.
 
         # correct boxes
