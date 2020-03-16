@@ -12,6 +12,7 @@ from keras.models import Model
 from keras.regularizers import l2
 
 from yolo3.utils import compose
+from ghostnet import ghost_body
 
 
 @wraps(Conv2D)  # 将Conv2D的信息赋值给DarknetConv2D
@@ -77,6 +78,24 @@ def make_last_layers(x, num_filters, out_filters):
 def dyolo_body(inputs, num_anchors, num_classes):
     darknet = Model(inputs, darknet_body(inputs))
     x = DarknetConv2D_BN_Leaky(512, (1, 1))(darknet.output)
+    x = ZeroPadding2D(((1, 0), (1, 0)))(x)  # 由于步长为2，上左各部1即可使featuremap减半，代替maxpooling
+    x = DarknetConv2D_BN_Leaky(1024, (3, 3), strides=(2, 2))(x)  # featuremap减半
+    x = DarknetConv2D_BN_Leaky(512, (1, 1))(x)
+    x = ZeroPadding2D(((1, 0), (1, 0)))(x)  # 由于步长为2，上左各部1即可使featuremap减半，代替maxpooling
+    # x = DarknetConv2D_BN_Leaky(1024, (3, 3), strides=(2, 2))(x)  # featuremap减半
+    # y = DarknetConv2D(num_anchors * (num_classes + 5), (1, 1))(x)
+    y = compose(
+        DarknetConv2D_BN_Leaky(1024, (3, 3), strides=(2, 2)),
+        DarknetConv2D(num_anchors * (num_classes + 5), (1, 1)))(x)
+    return Model(inputs, y)
+
+# ghostnet驾驶行为检测模型
+# 在ghostnet基础上添加输出处理层，使featuremap缩小为darknet输出的1/4,总共缩小128
+# 模型输入 batch_size * 384 * 384 * 3
+# 模型输出 barch_size * 3 * 3 * num_anchors * (num_classes + 5)
+def gyolo_body(inputs, num_anchors, num_classes):
+    ghostnet = Model(inputs, ghost_body(inputs))
+    x = DarknetConv2D_BN_Leaky(512, (1, 1))(ghostnet.output)
     x = ZeroPadding2D(((1, 0), (1, 0)))(x)  # 由于步长为2，上左各部1即可使featuremap减半，代替maxpooling
     x = DarknetConv2D_BN_Leaky(1024, (3, 3), strides=(2, 2))(x)  # featuremap减半
     x = DarknetConv2D_BN_Leaky(512, (1, 1))(x)
