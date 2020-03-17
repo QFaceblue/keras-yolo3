@@ -31,7 +31,7 @@ def _main():
     # ModelCheckpoint存储最优的模型
     checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
         monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
-    #ReduceLROnPlateau 学习率减少
+    # ReduceLROnPlateau 学习率减少 factor：学习速率降低的因素。new_lr = lr * factor ; min_lr：学习率的下限。
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
     # EarlyStopping 早停止;patience当连续多少个epochs时验证集精度不再变好终止训练，这里选择了10
     early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)

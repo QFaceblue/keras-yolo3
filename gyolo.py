@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Class definition of YOLO_v3 style detection model on image and video
+Class definition of dyolo style detection model on image and video
 """
 
 import colorsys
@@ -12,20 +12,20 @@ from keras.models import load_model
 from keras.layers import Input
 from PIL import Image, ImageFont, ImageDraw
 
-from yolo3.model import yolo_eval, yolo_body, tiny_yolo_body
+from yolo3.model import dyolo_eval, gyolo_body
 from yolo3.utils import letterbox_image
 import os
 from keras.utils import multi_gpu_model
 
 
-class YOLO(object):
+class GYOLO(object):
     _defaults = {
-        "model_path": 'model_data/yolo.h5',
-        "anchors_path": 'model_data/drive_yolo_anchors.txt',
+        "model_path": 'model_data/trained_weights_stage_1.h5',
+        "anchors_path": 'model_data/drive_anchors.txt',
         "classes_path": 'model_data/drive_classes.txt',
         "score": 0.3,
         "iou": 0.45,
-        "model_image_size": (416, 416),
+        "model_image_size": (384, 384),
         "gpu_num": 1,
     }
 
@@ -67,16 +67,14 @@ class YOLO(object):
         # Load model, or construct model and load weights.
         num_anchors = len(self.anchors)
         num_classes = len(self.class_names)
-        is_tiny_version = num_anchors == 6  # default setting
         try:
-            self.yolo_model = load_model(model_path, compile=False)
+            self.gyolo_model = load_model(model_path, compile=False)
         except:
-            self.yolo_model = tiny_yolo_body(Input(shape=(None, None, 3)), num_anchors // 2, num_classes) \
-                if is_tiny_version else yolo_body(Input(shape=(None, None, 3)), num_anchors // 3, num_classes)
-            self.yolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
+            self.gyolo_model = gyolo_body(Input(shape=(None, None, 3)), num_anchors // 1, num_classes)
+            self.gyolo_model.load_weights(self.model_path)  # make sure model, anchors and classes match
         else:
-            assert self.yolo_model.layers[-1].output_shape[-1] == \
-                   num_anchors / len(self.yolo_model.output) * (num_classes + 5), \
+            assert self.gyolo_model.layers[-1].output_shape[-1] == \
+                   num_anchors / len(self.dyolo_model.output) * (num_classes + 5), \
                 'Mismatch between model and given anchor and class sizes'
 
         print('{} model, anchors, and classes loaded.'.format(model_path))
@@ -95,8 +93,8 @@ class YOLO(object):
         # Generate output tensor targets for filtered bounding boxes.
         self.input_image_shape = K.placeholder(shape=(2,))
         if self.gpu_num >= 2:
-            self.yolo_model = multi_gpu_model(self.yolo_model, gpus=self.gpu_num)
-        boxes, scores, classes = yolo_eval(self.yolo_model.output, self.anchors,
+            self.gyolo_model = multi_gpu_model(self.gyolo_model, gpus=self.gpu_num)
+        boxes, scores, classes = dyolo_eval(self.gyolo_model.output, self.anchors,
                                            len(self.class_names), self.input_image_shape,
                                            score_threshold=self.score, iou_threshold=self.iou)
         return boxes, scores, classes
@@ -105,12 +103,12 @@ class YOLO(object):
         start = timer()
 
         if self.model_image_size != (None, None):
-            assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
-            assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[0] % 128 == 0, 'Multiples of 32 required'
+            assert self.model_image_size[1] % 128 == 0, 'Multiples of 32 required'
             boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))
         else:
-            new_image_size = (image.width - (image.width % 32),
-                              image.height - (image.height % 32))
+            new_image_size = (image.width - (image.width % 128),
+                              image.height - (image.height % 128))
             boxed_image = letterbox_image(image, new_image_size)
         image_data = np.array(boxed_image, dtype='float32')
 
@@ -121,7 +119,7 @@ class YOLO(object):
         out_boxes, out_scores, out_classes = self.sess.run(
             [self.boxes, self.scores, self.classes],  # 传入操作（图中除初始变量，其他所有变量均是由操作得到），sess.run会执行传入操作相关的所有操作。
             feed_dict={  # 传入占位符变量
-                self.yolo_model.input: image_data,
+                self.dyolo_model.input: image_data,
                 self.input_image_shape: [image.size[1], image.size[0]],
                 K.learning_phase(): 0
             })
@@ -217,14 +215,32 @@ def detect_video(yolo, video_path, output_path=""):
     vid.release()
     out.release()
     yolo.close_session()
-
 def main():
-    yolo_model = yolo_body(Input(shape=(416, 416, 3)), 3, 10)
-    print("dyolo_model have",len(yolo_model.layers),"layers")
-    yolo_model.summary()
+    gyolo_model = gyolo_body(Input(shape=(384, 384, 3)), 3, 10)
+    print("gyolo_model have",len(gyolo_model.layers),"layers")
+    gyolo_model.summary()
+
 # yolo_model 共有252层；主体网络darnet 185层； 结果处理层 67层
 # Total params: 61,624,807
 # Trainable params: 61,572,199
 # Non-trainable params: 52,608
+
+# dyolo_model 共有200层；主体网络darnet 185层； 结果处理层 15层
+# Total params: 51,164,813
+# Trainable params: 51,122,957
+# Non-trainable params: 41,856
+# input 1
+# zeropadding 7
+# add 23
+# batch_normalization 56
+# leaky_re_lu 56
+# conv2d 57
+
+# gyolo_model 共有309层；主体网络ghostnet 层； 294结果处理层 15层
+# Total params: 35,120,197
+# Trainable params: 35,094,373
+# Non-trainable params: 25,824
+
+
 if __name__ == '__main__':
     main()
