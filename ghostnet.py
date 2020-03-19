@@ -141,6 +141,11 @@ def ghost_body(x,mul=1,ratio=2):
 # Total params: 2,535,032
 # Trainable params: 2,517,592
 # Non-trainable params: 17,440
+
+# set kernel_size = kernel_size in the second ghost module in ghostbottleneck
+# Total params: 12,075,256
+# Trainable params: 12,057,816
+# Non-trainable params: 17,440
 if __name__ == '__main__':
     # x = K.zeros((5, 4, 3, 2))
     # y = SELayer(x,2)
