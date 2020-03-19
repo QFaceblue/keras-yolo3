@@ -20,7 +20,7 @@ from keras.utils import multi_gpu_model
 
 class GYOLO(object):
     _defaults = {
-        "model_path": 'model_data/trained_weights_stage_1.h5',
+        "model_path": 'logs/gyolo000/gyolo_trained_weights_stage_1.h5',
         "anchors_path": 'model_data/drive_anchors.txt',
         "classes_path": 'model_data/drive_classes.txt',
         "score": 0.3,
@@ -119,7 +119,7 @@ class GYOLO(object):
         out_boxes, out_scores, out_classes = self.sess.run(
             [self.boxes, self.scores, self.classes],  # 传入操作（图中除初始变量，其他所有变量均是由操作得到），sess.run会执行传入操作相关的所有操作。
             feed_dict={  # 传入占位符变量
-                self.dyolo_model.input: image_data,
+                self.gyolo_model.input: image_data,
                 self.input_image_shape: [image.size[1], image.size[0]],
                 K.learning_phase(): 0
             })
@@ -236,10 +236,10 @@ def main():
 # leaky_re_lu 56
 # conv2d 57
 
-# gyolo_model 共有309层；主体网络ghostnet 层； 294结果处理层 15层
-# Total params: 35,120,197
-# Trainable params: 35,094,373
-# Non-trainable params: 25,824
+# gyolo_model 共有294层；主体网络ghostnet 279层； 结果处理层 15层
+# Total params: 12,634,661
+# Trainable params: 12,611,077
+# Non-trainable params: 23,584
 
 
 if __name__ == '__main__':

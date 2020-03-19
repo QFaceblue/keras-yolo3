@@ -26,9 +26,21 @@ def clip2(x,min,max):
 # output_shape：函数应该返回的值的shape，可以是一个tuple，也可以是一个根据输入shape计算输出shape的函数
 # mask: 掩膜
 # arguments：可选，字典，用来记录向函数中传递的其他关键字参数
+
+def _make_divisible(v, divisor=4, min_value=None):
+    """
+    It ensures that all layers have a channel number that is divisible by 4
+    """
+    if min_value is None:
+        min_value = divisor
+    new_v = max(min_value, int(v + divisor / 2) // divisor * divisor)
+    # Make sure that round down does not go down by more than 10%.
+    if new_v < 0.9 * v:
+        new_v += divisor
+    return new_v
 # 注意力机制
 def SELayer(x,out_dim, ratio=4):
-    print("use seLayer,输入形状为",x.shape)
+    # print("use seLayer,输入形状为",x.shape)
     #b, w, h, c = x.shape
     # print(b, w, h, c)
     squeeze = GlobalAveragePooling2D()(x)
@@ -46,10 +58,10 @@ def SELayer(x,out_dim, ratio=4):
 
 
 # ghost模块
-def GhostModule(x, filters, kernel_size=3, dw_size=1, ratio=2, padding='SAME', strides=1, use_bias=False, relu=True,
+def GhostModule(x, filters, kernel_size=1, dw_size=3, ratio=2, padding='SAME', strides=1, use_bias=False, relu=True,
                 kernel_initializer='glorot_uniform'):
     assert ratio>=1
-    init_channels = math.ceil(filters *dw_size/ ratio)
+    init_channels = math.ceil(filters / ratio)
     base = Conv2D(init_channels, kernel_size, strides=strides, padding=padding,
                   kernel_initializer=kernel_initializer, use_bias=use_bias)(x)
     base = BatchNormalization()(base)
@@ -57,7 +69,7 @@ def GhostModule(x, filters, kernel_size=3, dw_size=1, ratio=2, padding='SAME', s
         base = Activation("relu")(base)
     if ratio == 1:
         return base
-    ghost = DepthwiseConv2D(kernel_size, strides=strides, padding=padding, depth_multiplier=(ratio-1),
+    ghost = DepthwiseConv2D(dw_size, strides=strides, padding=padding, depth_multiplier=(ratio-1),
                             depthwise_initializer=kernel_initializer)(base)
     ghost = BatchNormalization()(ghost)
     if relu:
@@ -66,27 +78,27 @@ def GhostModule(x, filters, kernel_size=3, dw_size=1, ratio=2, padding='SAME', s
     base_ghost = Concatenate(3)([base, ghost]) #使用keras layer包装
     return base_ghost
 
-def GhostBottleneck(x, hidden_dim, out_dim, kernel_size=3, dw_size=1, ratio=2,strides=1, use_se=False):
+def ghostBottleneck(x, hidden_dim, out_dim, kernel_size=3, ratio=2,strides=1, use_se=False):
     assert strides in [1, 2]
     input_dim = int(x.shape[3])
-    hidden = GhostModule(x,hidden_dim,kernel_size=kernel_size, dw_size=dw_size, ratio=ratio)
+    hidden = GhostModule(x,hidden_dim,kernel_size=1, ratio=ratio)
     if strides ==2:
-        hidden = DepthwiseConv2D(3, strides=2, padding='SAME')(hidden)
+        hidden = DepthwiseConv2D(kernel_size, strides=2, padding='SAME')(hidden)
     if use_se:
         # pass
-        hidden = SELayer(hidden,hidden_dim*dw_size)
-    res = GhostModule(hidden,out_dim,kernel_size=kernel_size, dw_size=dw_size, ratio=ratio,relu=False)
+        hidden = SELayer(hidden,hidden_dim)
+    res = GhostModule(hidden,out_dim,kernel_size=1, ratio=ratio,relu=False)
     shortcut = x
     if strides ==2:
         shortcut = DepthwiseConv2D(3, strides=2, padding='SAME')(shortcut)
     if input_dim != out_dim:
-        shortcut = Conv2D(out_dim*dw_size, 1)(shortcut)
+        shortcut = Conv2D(out_dim, 1)(shortcut)
         shortcut = BatchNormalization()(shortcut)
     out = Add()([res,shortcut]) #使用keras layer包装
     # out = res+shortcut
     return out
 
-def ghost_body(x,dw_size=1):
+def ghost_body(x,mul=1,ratio=2):
     """
     Constructs a MobileNetV3-Large model
     """
@@ -113,17 +125,22 @@ def ghost_body(x,dw_size=1):
     # inputs = Input(shape=(384,384,3,))
     # make first layer
     print("input shape:",x.shape)
-    x = Conv2D(16, 3, strides=1, padding="SAME",use_bias=False)(x)
+    x = Conv2D(_make_divisible(16*mul), 3, strides=2, padding="SAME",use_bias=False)(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
-    print("first layer shape:", x.shape)
+    # print("first layer output shape:", x.shape)
     # ghostnet cfgs
     for k, exp_size, c, use_se, s in cfgs:
-        x = GhostBottleneck(x,exp_size,c,kernel_size=k,use_se=use_se,strides=s,dw_size=dw_size)
+        output_channel = _make_divisible(c * mul)
+        hidden_channel = _make_divisible(exp_size * mul)
+        x = ghostBottleneck(x,hidden_channel,output_channel,kernel_size=k,use_se=use_se,strides=s,ratio=ratio)
     # add [5, 960, 160, 0, 2]
-    x = GhostBottleneck(x,960,160,kernel_size=5,use_se=0,strides=2)
+    # x = ghostBottleneck(x,960,160,kernel_size=5,use_se=0,strides=2)
     return x
-
+# ghost_body have 279 layers
+# Total params: 2,535,032
+# Trainable params: 2,517,592
+# Non-trainable params: 17,440
 if __name__ == '__main__':
     # x = K.zeros((5, 4, 3, 2))
     # y = SELayer(x,2)
@@ -135,13 +152,17 @@ if __name__ == '__main__':
     # z = GhostBottleneck(x,10,6,strides=2)
     # print(y.shape)
     # print(z.shape)
+
     inputs = Input(shape=(384, 384, 3))
     model = Model(inputs=inputs,outputs=ghost_body(inputs))
-    # model = Model(inputs=inputs, outputs=GhostModule(inputs,10))
-    # model = Model(inputs=inputs, outputs=GhostBottleneck(inputs,960,160,kernel_size=5,use_se=0,strides=2))
-    # model = Model(inputs=inputs, outputs=SELayer(inputs, 3))
-    print("ghost_body have", len(model.layers), "layers")
     model.summary()
+    print("ghost_body have", len(model.layers), "layers")
+
+    # # model = Model(inputs=inputs, outputs=GhostModule(inputs,10))
+    # # model = Model(inputs=inputs, outputs=GhostBottleneck(inputs,960,160,kernel_size=5,use_se=0,strides=2))
+    # # model = Model(inputs=inputs, outputs=SELayer(inputs, 3))
+
+
     # x = K.zeros((5, 384, 384, 3))
     # y = ghost_body(x)
     # print(y.shape,y.name,y.dtype)
