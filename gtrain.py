@@ -31,8 +31,8 @@ def _main():
     # ModelCheckpoint存储最优的模型
     checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
         monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
-    # ReduceLROnPlateau 学习率减少 factor：学习速率降低的因素。new_lr = lr * factor ; min_lr：学习率的下限。
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, verbose=1)
+    # ReduceLROnPlateau 当监视的loss不变时，学习率减少 factor：学习速率降低的因素。new_lr = lr * factor ; min_lr：学习率的下限。
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
     # EarlyStopping 早停止;patience当连续多少个epochs时验证集精度不再变好终止训练，这里选择了10
     early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=6, verbose=1)
 
@@ -50,9 +50,13 @@ def _main():
     if True:
         # for i in range(len(model.layers)):
         #     model.layers[i].trainable = True
-        model.compile(optimizer=Adam(lr=1e-3), loss={
-            # use custom yolo_loss Lambda layer.
-            'yolo_loss': lambda y_true, y_pred: y_pred})
+        # use custom yolo_loss Lambda layer.
+        # loss后类似’binary_crossentropy’、’mse’等代称
+        # loss为函数名称的时候，不带括号
+        # 函数参数必须为(y_true, y_pred, **kwards)的格式
+        # 不能直接使用tf.nn.sigmoid_cross_entropy_with_logits等函数，
+        # 因为其参数格式为(labels=None,logits=None)，需要指定labels =、logits = 这两个参数
+        model.compile(optimizer=Adam(lr=1e-3),loss={'yolo_loss': lambda y_true, y_pred: y_pred})#模型输入即为loss
         # model.summary()
         # Total params: 51, 161, 738
         # Trainable params: 10, 534, 954

@@ -58,20 +58,22 @@ def SELayer(x,out_dim, ratio=4):
 
 
 # ghost模块
-def GhostModule(x, filters, kernel_size=1, dw_size=3, ratio=2, padding='SAME', strides=1, use_bias=False, relu=True,
-                kernel_initializer='glorot_uniform'):
+def GhostModule(x, filters, kernel_size=1, dw_size=3, ratio=2, padding='SAME', strides=1, use_bias=False, relu=True,bn=True,
+                kernel_initializer='he_normal',kernel_regularizer=None):
     assert ratio>=1
     init_channels = math.ceil(filters / ratio)
     base = Conv2D(init_channels, kernel_size, strides=strides, padding=padding,
-                  kernel_initializer=kernel_initializer, use_bias=use_bias)(x)
-    base = BatchNormalization()(base)
+                  kernel_initializer=kernel_initializer, kernel_regularizer=kernel_regularizer,use_bias=use_bias)(x)
+    if bn:
+        base = BatchNormalization()(base)
     if relu:
         base = Activation("relu")(base)
     if ratio == 1:
         return base
-    ghost = DepthwiseConv2D(dw_size, strides=strides, padding=padding, depth_multiplier=(ratio-1),
+    ghost = DepthwiseConv2D(dw_size, strides=1, padding=padding, depth_multiplier=(ratio-1),
                             depthwise_initializer=kernel_initializer)(base)
-    ghost = BatchNormalization()(ghost)
+    if bn:
+        ghost = BatchNormalization()(ghost)
     if relu:
         ghost = Activation("relu")(ghost)
     # base_ghost = K.concatenate([base, ghost], 3)
@@ -88,6 +90,26 @@ def ghostBottleneck(x, hidden_dim, out_dim, kernel_size=3, ratio=2,strides=1, us
         # pass
         hidden = SELayer(hidden,hidden_dim)
     res = GhostModule(hidden,out_dim,kernel_size=1, ratio=ratio,relu=False)
+    shortcut = x
+    if strides ==2:
+        shortcut = DepthwiseConv2D(3, strides=2, padding='SAME')(shortcut)
+    if input_dim != out_dim:
+        shortcut = Conv2D(out_dim, 1)(shortcut)
+        shortcut = BatchNormalization()(shortcut)
+    out = Add()([res,shortcut]) #使用keras layer包装
+    # out = res+shortcut
+    return out
+
+def my_ghostBottleneck(x, hidden_dim, out_dim, kernel_size=3, ratio=2,strides=1, kernel_regularizer=None,use_se=False):
+    assert strides in [1, 2]
+    input_dim = int(x.shape[3])
+    hidden = GhostModule(x,hidden_dim,kernel_size=1, kernel_regularizer=kernel_regularizer,ratio=ratio)
+    if strides ==2:
+        hidden = DepthwiseConv2D(kernel_size, strides=2, depthwise_regularizer=kernel_regularizer,padding='SAME')(hidden)
+    if use_se:
+        # pass
+        hidden = SELayer(hidden,hidden_dim)
+    res = GhostModule(hidden,out_dim,kernel_size=kernel_size if strides==1 else 1,kernel_regularizer=kernel_regularizer, ratio=ratio,relu=False)
     shortcut = x
     if strides ==2:
         shortcut = DepthwiseConv2D(3, strides=2, padding='SAME')(shortcut)
