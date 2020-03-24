@@ -15,7 +15,7 @@ from yolo3.utils import get_random_data
 
 def _main():
     annotation_path = 'dataset/train.txt'
-    log_dir = 'logs/bgyolo000/'
+    log_dir = 'logs/gyolo/gyolo111/'
     classes_path = 'model_data/drive_classes.txt'
     anchors_path = 'model_data/drive_anchors.txt'
     class_names = get_classes(classes_path)
@@ -25,16 +25,17 @@ def _main():
     input_shape = (384,384) # multiple of 128, hw
 
     model = create_model(input_shape, anchors, num_classes,
-        freeze_body=1, weights_path='model_data/trained_weights_stage_1.h5') # make sure you know what you freeze
+        freeze_body=1, weights_path='logs/cifar10/555/ghostnet_cifar10.h5') # make sure you know what you freeze
     # TensorBoard 可视化
     logging = TensorBoard(log_dir=log_dir)
     # ModelCheckpoint存储最优的模型
     checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-val_loss{val_loss:.3f}.h5',
-        monitor='val_loss', save_weights_only=True, save_best_only=True, period=3)
+        monitor='val_loss', save_weights_only=True, save_best_only=True, period=5)
     # ReduceLROnPlateau 当监视的loss不变时，学习率减少 factor：学习速率降低的因素。new_lr = lr * factor ; min_lr：学习率的下限。
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=3, verbose=1)
-    # EarlyStopping 早停止;patience当连续多少个epochs时验证集精度不再变好终止训练，这里选择了10
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=6, verbose=1)
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
+    # EarlyStopping 早停止;patience当连续多少个epochs时验证集精度不再变好终止训练，这里选择了10。
+    # 一般先经过一段时间训练后，在使用，应为训练前期loss不稳定，可能会在loss还没稳定时就停止了。
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
 
     val_split = 0.1
     with open(annotation_path) as f:
@@ -74,7 +75,7 @@ def _main():
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
-    if False:
+    if True:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
         model.compile(optimizer=Adam(lr=1e-4), loss={'yolo_loss': lambda y_true, y_pred: y_pred}) # recompile to apply the change
@@ -108,7 +109,7 @@ def get_anchors(anchors_path):
     return np.array(anchors).reshape(-1, 2)
 
 
-def create_model(input_shape, anchors, num_classes, load_pretrained=False, freeze_body=0,
+def create_model(input_shape, anchors, num_classes, load_pretrained=True, freeze_body=0,
             weights_path='model_data/gyolo_trained_weights_stage_1.h5'):
     '''create the training model'''
     K.clear_session() # get a new session

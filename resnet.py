@@ -117,22 +117,25 @@ def residual_network(img_input, classes_num=10, stack_n=5):
               kernel_regularizer=regularizers.l2(weight_decay))(x)
     return x
 
+# Total params: 244,298
+# Trainable params: 242,026
+# Non-trainable params: 2,272
 def ghost_residual_network(img_input, classes_num=10, stack_n=5):
     def residual_block(x, o_filters, increase=False):
-        stride = (1, 1)
+        stride = 1
         if increase:
-            stride = (2, 2)
+            stride = 2
 
         o1 = Activation('relu')(BatchNormalization(momentum=0.9, epsilon=1e-5)(x))
-        conv_1 = Conv2D(o_filters, kernel_size=(3, 3), strides=stride, padding='same',
+        conv_1 = GhostModule(o1,o_filters, kernel_size=3, strides=stride, padding='same',relu=False,bn=False,
                         kernel_initializer="he_normal",
-                        kernel_regularizer=regularizers.l2(weight_decay))(o1)
+                        kernel_regularizer=regularizers.l2(weight_decay))
         o2 = Activation('relu')(BatchNormalization(momentum=0.9, epsilon=1e-5)(conv_1))
-        conv_2 = Conv2D(o_filters, kernel_size=(3, 3), strides=(1, 1), padding='same',
-                        kernel_initializer="he_normal",
-                        kernel_regularizer=regularizers.l2(weight_decay))(o2)
+        conv_2 = GhostModule(o2,o_filters, kernel_size=3, strides=1, padding='same',
+                        kernel_initializer="he_normal",relu=False,bn=False,
+                        kernel_regularizer=regularizers.l2(weight_decay))
         if increase:
-            projection = Conv2D(o_filters, kernel_size=(1, 1), strides=(2, 2), padding='same',
+            projection = Conv2D(o_filters, kernel_size=1, strides=2, padding='same',
                                 kernel_initializer="he_normal",
                                 kernel_regularizer=regularizers.l2(weight_decay))(o1)
             block = add([conv_2, projection])
@@ -172,70 +175,71 @@ def ghost_residual_network(img_input, classes_num=10, stack_n=5):
 
 if __name__ == '__main__':
 
-    # print("========================================")
-    # print("MODEL: Residual Network ({:2d} layers)".format(6 * stack_n + 2))
-    # print("BATCH SIZE: {:3d}".format(batch_size))
-    # print("WEIGHT DECAY: {:.4f}".format(weight_decay))
-    # print("EPOCHS: {:3d}".format(epochs))
-    # print("DATASET: {:}".format(args.dataset))
-    #
-    # print("== LOADING DATA... ==")
-    # # load data
-    #
-    # global num_classes
-    # if args.dataset == "cifar100":
-    #     num_classes = 100
-    #     (x_train, y_train), (x_test, y_test) = cifar100.load_data()
-    # else:
-    #     (x_train, y_train), (x_test, y_test) = cifar10.load_data()
-    # y_train = keras.utils.to_categorical(y_train, num_classes)
-    # y_test = keras.utils.to_categorical(y_test, num_classes)
-    #
-    # print("== DONE! ==\n== COLOR PREPROCESSING... ==")
-    # # color preprocessing
-    # x_train, x_test = color_preprocessing(x_train, x_test)
-    #
-    # print("== DONE! ==\n== BUILD MODEL... ==")
+    print("========================================")
+    print("MODEL: Residual Network ({:2d} layers)".format(6 * stack_n + 2))
+    print("BATCH SIZE: {:3d}".format(batch_size))
+    print("WEIGHT DECAY: {:.4f}".format(weight_decay))
+    print("EPOCHS: {:3d}".format(epochs))
+    print("DATASET: {:}".format(args.dataset))
+
+    print("== LOADING DATA... ==")
+    # load data
+
+    global num_classes
+    if args.dataset == "cifar100":
+        num_classes = 100
+        (x_train, y_train), (x_test, y_test) = cifar100.load_data()
+    else:
+        (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    y_train = keras.utils.to_categorical(y_train, num_classes)
+    y_test = keras.utils.to_categorical(y_test, num_classes)
+
+    print("== DONE! ==\n== COLOR PREPROCESSING... ==")
+    # color preprocessing
+    x_train, x_test = color_preprocessing(x_train, x_test)
+
+    print("== DONE! ==\n== BUILD MODEL... ==")
     # build network
     img_input = Input(shape=(img_rows, img_cols, img_channels))
-    output = residual_network(img_input, num_classes, stack_n)
+    # output = residual_network(img_input, num_classes, stack_n)
+    output = ghost_residual_network(img_input, num_classes, stack_n)
     resnet = Model(img_input, output)
 
     # print model architecture if you need.
-    print(resnet.summary())
+    # print(resnet.summary())
 
-    # # set optimizer
-    # sgd = optimizers.SGD(lr=.1, momentum=0.9, nesterov=True)
-    # resnet.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
-    # log_dir = 'logs/cifar10/resnet/'
-    # # set callback
-    # checkpoint = ModelCheckpoint(
-    #     log_dir + 'resnet-ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
-    #     monitor='val_acc', save_weights_only=True, save_best_only=True, period=10)
-    # tb_cb = TensorBoard(log_dir=log_dir)
-    # change_lr = LearningRateScheduler(scheduler)  # 调整lr
-    # # 根据条件提前停止
-    # # early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=3, verbose=1)
-    # cbks = [checkpoint, tb_cb, change_lr]
-    # # cbks = [TensorBoard(log_dir=(log_dir+'resnet_{:d}_{}/').format(layers, args.dataset), histogram_freq=0),
-    # #         LearningRateScheduler(scheduler)]
-    #
-    # # dump checkpoint if you need.(add it to cbks)
-    # # ModelCheckpoint('./checkpoint-{epoch}.h5', save_best_only=False, mode='auto', period=10)
-    #
-    # # set data augmentation
-    # print("== USING REAL-TIME DATA AUGMENTATION, START TRAIN... ==")
-    # datagen = ImageDataGenerator(horizontal_flip=True,
-    #                              width_shift_range=0.125,
-    #                              height_shift_range=0.125,
-    #                              fill_mode='constant', cval=0.)
-    #
-    # datagen.fit(x_train)
-    #
-    # # start training
-    # resnet.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
-    #                      steps_per_epoch=iterations,
-    #                      epochs=epochs,
-    #                      callbacks=cbks,
-    #                      validation_data=(x_test, y_test))
-    # resnet.save(log_dir + 'resnet_cifar10.h5')
+    # set optimizer
+    sgd = optimizers.SGD(lr=.1, momentum=0.9, nesterov=True)
+    resnet.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
+    log_dir = 'logs/cifar10/ghost_resnet/'
+    # set callback
+    checkpoint = ModelCheckpoint(
+        log_dir + 'ghostresnet-ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
+        monitor='val_acc', save_weights_only=True, save_best_only=True, period=20)
+    tb_cb = TensorBoard(log_dir=log_dir)
+    change_lr = LearningRateScheduler(scheduler)  # 调整lr
+    # 根据条件提前停止
+    # early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=3, verbose=1)
+    cbks = [checkpoint, tb_cb, change_lr]
+    # cbks = [TensorBoard(log_dir=(log_dir+'resnet_{:d}_{}/').format(layers, args.dataset), histogram_freq=0),
+    #         LearningRateScheduler(scheduler)]
+
+    # dump checkpoint if you need.(add it to cbks)
+    # ModelCheckpoint('./checkpoint-{epoch}.h5', save_best_only=False, mode='auto', period=10)
+
+    # set data augmentation
+    print("== USING REAL-TIME DATA AUGMENTATION, START TRAIN... ==")
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                                 width_shift_range=0.125,
+                                 height_shift_range=0.125,
+                                 fill_mode='constant', cval=0.)
+
+    datagen.fit(x_train)
+
+    # start training
+    resnet.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
+                         steps_per_epoch=iterations,
+                         epochs=epochs,
+                         callbacks=cbks,
+                         validation_data=(x_test, y_test))
+    resnet.save(log_dir + 'ghost_resnet_cifar10.h5')

@@ -21,7 +21,7 @@ from keras.utils import multi_gpu_model
 class GYOLO(object):
     _defaults = {
         # "model_path": 'logs/bgyolo000/bgyolo_trained_weights_stage_1.h5',
-        "model_path": 'logs/gyolo000/gyolo_trained_weights_stage_1.h5',
+        "model_path": 'logs/gyolo/gyolo111/gyolo_trained_weights_final.h5',
         "anchors_path": 'model_data/drive_anchors.txt',
         "classes_path": 'model_data/drive_classes.txt',
         "score": 0.3,
