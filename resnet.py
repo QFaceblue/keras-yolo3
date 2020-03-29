@@ -5,7 +5,7 @@ from keras.datasets import cifar10, cifar100
 from keras.preprocessing.image import ImageDataGenerator
 from keras.layers.normalization import BatchNormalization
 from keras.layers import Conv2D, Dense, Input, add, Activation, GlobalAveragePooling2D
-from keras.callbacks import LearningRateScheduler, TensorBoard, ModelCheckpoint
+from keras.callbacks import LearningRateScheduler, TensorBoard, ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
 from keras.models import Model
 from keras import optimizers, regularizers
 from keras import backend as K
@@ -27,8 +27,8 @@ parser.add_argument('-e', '--epochs', type=int, default=200, metavar='NUMBER',
                     help='epochs(default: 200)')
 parser.add_argument('-n', '--stack_n', type=int, default=5, metavar='NUMBER',
                     help='stack number n, total layers = 6 * n + 2 (default: 5)')
-parser.add_argument('-d', '--dataset', type=str, default="cifar10", metavar='STRING',
-                    help='dataset. (default: cifar10)')
+parser.add_argument('-d', '--dataset', type=str, default="cifar100", metavar='STRING',
+                    help='dataset. (default: cifar100)')
 
 args = parser.parse_args()
 
@@ -211,16 +211,20 @@ if __name__ == '__main__':
     # set optimizer
     sgd = optimizers.SGD(lr=.1, momentum=0.9, nesterov=True)
     resnet.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
-    log_dir = 'logs/cifar10/ghost_resnet/'
+    # log_dir = 'logs/cifar10/ghost_resnet/'
+    log_dir = 'logs/cifar100/ghost_resnet/000/'
     # set callback
     checkpoint = ModelCheckpoint(
         log_dir + 'ghostresnet-ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
         monitor='val_acc', save_weights_only=True, save_best_only=True, period=20)
     tb_cb = TensorBoard(log_dir=log_dir)
-    change_lr = LearningRateScheduler(scheduler)  # 调整lr
+    # change_lr = LearningRateScheduler(scheduler)  # 调整lr
+    # cbks = [checkpoint, tb_cb, change_lr]
+
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, verbose=1)
     # 根据条件提前停止
-    # early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=3, verbose=1)
-    cbks = [checkpoint, tb_cb, change_lr]
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+    cbks = [checkpoint, tb_cb, reduce_lr,early_stopping]
     # cbks = [TensorBoard(log_dir=(log_dir+'resnet_{:d}_{}/').format(layers, args.dataset), histogram_freq=0),
     #         LearningRateScheduler(scheduler)]
 
@@ -242,4 +246,4 @@ if __name__ == '__main__':
                          epochs=epochs,
                          callbacks=cbks,
                          validation_data=(x_test, y_test))
-    resnet.save(log_dir + 'ghost_resnet_cifar10.h5')
+    resnet.save(log_dir + 'ghost_resnet_cifar100.h5')

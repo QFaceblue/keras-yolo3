@@ -4,14 +4,28 @@ train the ghostnet for your own dataset.
 import keras
 import numpy as np
 import keras.backend as K
+from PIL import Image
 from keras.layers import Input, Lambda
 from keras.models import Model
 from keras.optimizers import Adam
-from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping
+from keras.callbacks import TensorBoard, ModelCheckpoint, ReduceLROnPlateau, EarlyStopping, LearningRateScheduler
 
 from ghostnet import ghostnet
 from yolo3.utils import get_random_data
 
+def scheduler(epoch):
+    if epoch < 48:
+        return 0.1
+    if epoch < 72:
+        return 0.01
+    return 0.001
+
+def scheduler2(epoch):
+    if epoch < 100:
+        return 0.1
+    if epoch < 130:
+        return 0.01
+    return 0.001
 
 def _main():
     annotation_path = 'dataset/train.txt'
@@ -23,12 +37,14 @@ def _main():
     input_shape = (384,384) # multiple of 128, hw
 
     model = create_model(num_classes, load_pretrained=True,
-        freeze_body=1, weights_path='logs/cifar10/555/ghostnet_cifar10.h5') # make sure you know what you freeze
+        freeze_body=0, weights_path='logs/cifar10/000/ghostnet_cifar10.h5') # make sure you know what you freeze
     # TensorBoard 可视化
     logging = TensorBoard(log_dir=log_dir)
     # ModelCheckpoint存储最优的模型
     checkpoint = ModelCheckpoint(log_dir + 'ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
         monitor='val_acc', save_weights_only=True, save_best_only=True, period=5)
+    change_lr = LearningRateScheduler(scheduler)  # 调整lr
+    change_lr2 = LearningRateScheduler(scheduler2)  # 调整lr
     # ReduceLROnPlateau 当监视的loss不变时，学习率减少 factor：学习速率降低的因素。new_lr = lr * factor ; min_lr：学习率的下限。
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=4, verbose=1)
     # EarlyStopping 早停止;patience当连续多少个epochs时验证集精度不再变好终止训练，这里选择了10。
@@ -64,28 +80,28 @@ def _main():
                 steps_per_epoch=max(1, num_train//batch_size),
                 validation_data=data_generator_wrapper(lines[num_train:], batch_size, input_shape, num_classes),
                 validation_steps=max(1, num_val//batch_size),
-                epochs=32,
+                epochs=96,
                 initial_epoch=0,
-                callbacks=[logging, checkpoint,reduce_lr, early_stopping])
+                callbacks=[logging, checkpoint,change_lr])
         model.save_weights(log_dir + 'ghostnet_trained_weights_stage_1.h5')
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
-    if True:
-        for i in range(len(model.layers)):
-            model.layers[i].trainable = True
-        model.compile(optimizer=Adam(lr=1e-2), loss='categorical_crossentropy',metrics=['accuracy']) # recompile to apply the change
-        print('Unfreeze all of the layers.')
-        batch_size = 8 # note that more GPU memory is required after unfreezing the body
-        print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
-        model.fit_generator(data_generator_wrapper(lines[:num_train], batch_size, num_classes),
-            steps_per_epoch=max(1, num_train//batch_size),
-            validation_data=data_generator_wrapper(lines[num_train:], batch_size, num_classes),
-            validation_steps=max(1, num_val//batch_size),
-            epochs=96,
-            initial_epoch=32,
-            callbacks=[logging, checkpoint, reduce_lr, early_stopping])
-        model.save_weights(log_dir + 'ghostnet_trained_weights_final.h5')
+    # if True:
+    #     for i in range(len(model.layers)):
+    #         model.layers[i].trainable = True
+    #     model.compile(optimizer=Adam(lr=1e-2), loss='categorical_crossentropy',metrics=['accuracy']) # recompile to apply the change
+    #     print('Unfreeze all of the layers.')
+    #     batch_size = 8 # note that more GPU memory is required after unfreezing the body
+    #     print('Train on {} samples, val on {} samples, with batch size {}.'.format(num_train, num_val, batch_size))
+    #     model.fit_generator(data_generator_wrapper(lines[:num_train], batch_size, input_shape, num_classes),
+    #         steps_per_epoch=max(1, num_train//batch_size),
+    #         validation_data=data_generator_wrapper(lines[num_train:], batch_size, input_shape, num_classes),
+    #         validation_steps=max(1, num_val//batch_size),
+    #         epochs=150,
+    #         initial_epoch=56,
+    #         callbacks=[logging, checkpoint, change_lr2])
+    #     model.save_weights(log_dir + 'ghostnet_trained_weights_final.h5')
 
     # Further training if needed.
 
@@ -98,7 +114,7 @@ def get_classes(classes_path):
     return class_names
 
 def create_model(num_classes, load_pretrained=True, freeze_body=1,
-            weights_path='logs/cifar10/555/ghostnet_cifar10.h5'):
+            weights_path='logs/cifar10/000/ghostnet_cifar10.h5'):
     '''create the training model'''
     K.clear_session() # get a new session
     model = ghostnet(mul=1, ratio=2, class_num=num_classes)
@@ -107,7 +123,9 @@ def create_model(num_classes, load_pretrained=True, freeze_body=1,
     if load_pretrained:
         model.load_weights(weights_path, by_name=True, skip_mismatch=True)
         print('Load weights {}.'.format(weights_path))
-        if freeze_body in [1, 2]:
+        if freeze_body==0:
+            pass
+        elif freeze_body in [1, 2]:
             # Freeze ghost body or freeze all but 3 output layers.
             num = (179, len(model.layers)-3)[freeze_body-1]
             for i in range(num): model.layers[i].trainable = False
@@ -140,7 +158,43 @@ def data_generator_wrapper(annotation_lines, batch_size, input_shape, num_classe
     if n==0 or batch_size<=0: return None
     return data_generator(annotation_lines, batch_size, input_shape, num_classes)
 
+def calculate_num_of_type(annotation_path = 'dataset/train.txt',classes_path = 'model_data/drive_classes.txt'):
+    class_names = get_classes(classes_path)
+    num_classes = len(class_names)
+    num_of_type =np.zeros_like(class_names,dtype=int)
+    # print(num_of_type)
+    with open(annotation_path) as f:
+        lines = f.readlines()
+    for line in lines:
+        item =line.split()
+        boxes = np.array([np.array(list(map(int, box.split(',')))) for box in item[1:]])
+        for box in boxes:
+            num_of_type[box[-1]] += 1
+    print("totol:   ",num_of_type.sum())
+    for i in np.arange(num_classes):
+        print(class_names[i],": ",num_of_type[i])
+
 def main():
-    pass
+    annotation_path = 'dataset/train.txt'
+    classes_path = 'model_data/drive_classes.txt'
+    class_names = get_classes(classes_path)
+    num_classes = len(class_names)
+    print("classname:",class_names)
+    with open(annotation_path) as f:
+        lines = f.readlines()
+    line = lines[0]
+    item = line.split()
+    print("item:",item)
+    # image = Image.open(item[0])
+    # image.show()
+    box = np.array([np.array(list(map(int, box.split(',')))) for box in item[1:]])
+    print("box:",box)
+    print(box[0][-1])
+    label = keras.utils.to_categorical(box[0][-1], num_classes)
+    print("one-hot:",label,"    label:",class_names[box[0][-1]])
+    index = np.argmax(label)
+    print("index:",index,"type:",class_names[index])
 if __name__ == '__main__':
     _main()
+    # main()
+    # calculate_num_of_type()

@@ -1,14 +1,15 @@
 import keras
 from keras import backend as K
 from keras import optimizers, regularizers
-from keras.datasets import cifar10
+from keras.datasets import cifar10, cifar100
 from keras.models import Sequential,Model,load_model
 from keras.layers import Conv2D, Dense, Flatten, MaxPooling2D,GlobalAveragePooling2D, Input, Activation,Dropout
 from keras.layers.normalization import BatchNormalization
 from keras.callbacks import LearningRateScheduler, TensorBoard, ModelCheckpoint, EarlyStopping, ReduceLROnPlateau
+from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 
-from ghostnet import ghost_body, ghostBottleneck, my_ghostBottleneck
+from ghostnet import ghost_body, ghostBottleneck, my_ghostBottleneck,ghostnet
 
 
 # Total params: 2,756,866
@@ -18,21 +19,22 @@ from ghostnet import ghost_body, ghostBottleneck, my_ghostBottleneck
 # Total params: 2,534,466
 # Trainable params: 2,517,026
 # Non-trainable params: 17,440
-def ghost_model():
+def ghost_model(class_num=10):
     inputs = Input(shape=(32, 32, 3))
     x = ghost_body(inputs,mul=1,ratio=2)
     x = GlobalAveragePooling2D()(x)
-    x = Dense(1280)(x)
+    x = Dense(128)(x)
     x = BatchNormalization()(x)
     x = Activation("relu")(x)
-    x = Dropout(0.2)(x)
-    x = Dense(10)(x)
+    # x = Dropout(0.2)(x)
+    x = Dense(class_num)(x)
     x = Activation("softmax")(x)
     model = Model(inputs,x)
     sgd = optimizers.SGD(lr=.1, momentum=0.9, nesterov=True)
     # 评价函数用于评估当前训练模型的性能。当模型编译后（compile），评价函数应该作为 metrics 的参数来输入。
     # 评价函数和 损失函数 相似，只不过评价函数的结果不会用于训练过程中。
-    model.compile(loss='categorical_crossentropy', optimizer=sgd, metrics=['accuracy'])
+    # model.compile(optimizer=Adam(lr=1e-1), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=sgd, loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 # Total params: 72,250
@@ -260,8 +262,8 @@ def main():
     x_test /= 255.0
     log_dir = 'logs/cifar10/333/'
     # build network
-    # model = ghost_model()
-    model = cifar10_model2()
+    model = ghost_model()
+    # model = cifar10_model2()
     # print(model.summary())
     # print(model.output)
     # set callback
@@ -277,7 +279,7 @@ def main():
     # start train
     model.fit(x_train, y_train,
               batch_size=128,
-              epochs=80,
+              epochs=128,
               callbacks=cbks,
               validation_data=(x_test, y_test),
               shuffle=True)
@@ -373,5 +375,132 @@ def main3():
     # save model
     model.save_weights(log_dir + 'cifar10_model4_wr_wd0.5.h5')
 
+def main4():
+    # load data
+    (x_train, y_train), (x_test, y_test) = cifar10.load_data()
+    y_train = keras.utils.to_categorical(y_train, 10)
+    y_test = keras.utils.to_categorical(y_test, 10)
+
+    # color preprocessing
+    x_train, x_test = color_preprocessing(x_train, x_test)
+
+    log_dir = 'logs/cifar10/000/'
+    # weight_dir = "logs/cifar10/888/cifar10_model3_wr.h5"
+    # build network
+    model = ghost_model()
+    # model = ghostnet(mul=1, ratio=2,class_num=10)
+    # model.compile(optimizer=Adam(lr=1e-1), loss='categorical_crossentropy', metrics=['accuracy'])
+    # model.load_weights(weight_dir)
+    # print(model.summary())
+
+    # set callback
+    checkpoint = ModelCheckpoint(
+        log_dir + 'ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
+        monitor='val_acc', save_weights_only=True, save_best_only=True, period=20)
+    tb_cb = TensorBoard(log_dir=log_dir)
+    # change_lr = LearningRateScheduler(scheduler4)  # 调整lr
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=4, verbose=1)# min_lr=1e-4,
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+    cbks = [checkpoint, tb_cb, reduce_lr,early_stopping]
+
+    # set data augmentation
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                                 width_shift_range=0.125,
+                                 height_shift_range=0.125,
+                                 fill_mode='constant', cval=0.)
+
+    datagen.fit(x_train)
+
+    # start training
+    model.fit_generator(datagen.flow(x_train, y_train, batch_size=128),
+                         steps_per_epoch=len(x_train)//128,
+                         epochs=128,
+                         callbacks=cbks,
+                         validation_data=(x_test, y_test))
+    # save model
+    model.save_weights(log_dir + 'ghostnet_cifar10.h5')
+
+def main5():
+    # load data
+    (x_train, y_train), (x_test, y_test) = cifar100.load_data()
+    y_train = keras.utils.to_categorical(y_train, 100)
+    y_test = keras.utils.to_categorical(y_test, 100)
+
+    # color preprocessing
+    x_train, x_test = color_preprocessing(x_train, x_test)
+
+    log_dir = 'logs/cifar100/111/'
+    # weight_dir = "logs/cifar10/888/cifar10_model3_wr.h5"
+    # build network
+    model = ghost_model(100)
+    # model = ghostnet(mul=1, ratio=2,class_num=10)
+    # model.compile(optimizer=Adam(lr=1e-1), loss='categorical_crossentropy', metrics=['accuracy'])
+    # model.load_weights(weight_dir)
+    # print(model.summary())
+
+    # set callback
+    checkpoint = ModelCheckpoint(
+        log_dir + 'ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
+        monitor='val_acc', save_weights_only=True, save_best_only=True, period=20)
+    tb_cb = TensorBoard(log_dir=log_dir)
+    # change_lr = LearningRateScheduler(scheduler4)  # 调整lr
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=4, verbose=1)# min_lr=1e-4,
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+    cbks = [checkpoint, tb_cb, reduce_lr,early_stopping]
+
+    # set data augmentation
+    datagen = ImageDataGenerator(horizontal_flip=True,
+                                 width_shift_range=0.125,
+                                 height_shift_range=0.125,
+                                 fill_mode='constant', cval=0.)
+
+    datagen.fit(x_train)
+
+    # start training
+    model.fit_generator(datagen.flow(x_train, y_train, batch_size=128),
+                         steps_per_epoch=len(x_train)//128,
+                         epochs=128,
+                         callbacks=cbks,
+                         validation_data=(x_test, y_test))
+    # save model
+    model.save_weights(log_dir + 'ghostnet_cifar100.h5')
+
+# without preprocess
+def main6():
+    # load data
+    (x_train, y_train), (x_test, y_test) = cifar100.load_data()
+    y_train = keras.utils.to_categorical(y_train, 100)
+    y_test = keras.utils.to_categorical(y_test, 100)
+    x_train = x_train.astype('float32')
+    x_test = x_test.astype('float32')
+    x_train /= 255.0
+    x_test /= 255.0
+    log_dir = 'logs/cifar100/333/'
+    # build network
+    model = ghost_model(100)
+    # model = cifar10_model2()
+    # print(model.summary())
+    # print(model.output)
+    # set callback
+    checkpoint = ModelCheckpoint(
+        log_dir + 'ep{epoch:03d}-loss{loss:.3f}-acc{acc:.3f}-val_loss{val_loss:.3f}-val_acc{val_acc:.3f}.h5',
+        monitor='val_acc', save_weights_only=True, save_best_only=True, period=10)
+    tb_cb = TensorBoard(log_dir=log_dir)
+    # change_lr = LearningRateScheduler(scheduler4)  # 调整lr
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=4, verbose=1)  # min_lr=1e-4,
+    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0, patience=10, verbose=1)
+    cbks = [checkpoint, tb_cb, reduce_lr, early_stopping]
+
+    # start train
+    model.fit(x_train, y_train,
+              batch_size=128,
+              epochs=128,
+              callbacks=cbks,
+              validation_data=(x_test, y_test),
+              shuffle=True)
+
+    # save model
+    model.save(log_dir + 'ghostnet_cifar100.h5')
+
 if __name__ == '__main__':
-    main3()
+    main5()
