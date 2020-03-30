@@ -176,12 +176,14 @@ def yolo_head(feats, anchors, num_classes, input_shape, calc_loss=False):
     grid = K.concatenate([grid_x, grid_y]) #最后一维拼接
     grid = K.cast(grid, K.dtype(feats))
 
-    # batch, height, width, num_anchors, num_classes + 5
+    # batch, height, width, num_anchors, num_classes + 5 （x_offset、y_offset、h和w、置信度、分类结果）
     feats = K.reshape(
         feats, [-1, grid_shape[0], grid_shape[1], num_anchors, num_classes + 5])
 
     # Adjust preditions to each spatial grid point and anchor size.
     # 偏移量加上所属网格，然后再除以整个网格大小得到相对于整个网格偏移量
+    # 广播：在两个数组上运行时，NumPy会逐元素地比较它们的形状。它从尾随尺寸开始，并向前发展。
+    # 两个尺寸兼容时： 他们是相等的，或者其中一个是1
     box_xy = (K.sigmoid(feats[..., :2]) + grid) / K.cast(grid_shape[::-1], K.dtype(feats))
     # 大小偏移量乘以锚点框大小，再除以输入大小，得到相对输入大小的框大小
     box_wh = K.exp(feats[..., 2:4]) * anchors_tensor / K.cast(input_shape[::-1], K.dtype(feats))
@@ -218,13 +220,14 @@ def yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape):
     boxes *= K.concatenate([image_shape, image_shape])
     return boxes
 
-
+# yolo_boxes_and_scores(yolo_outputs[0],anchors[anchor_mask[l]], num_classes, input_shape, image_shape)
+# feats.shape=(N,13,13,3*(num_classes+5))
 def yolo_boxes_and_scores(feats, anchors, num_classes, input_shape, image_shape):
     '''Process Conv layer output'''
     box_xy, box_wh, box_confidence, box_class_probs = yolo_head(feats,
                                                                 anchors, num_classes, input_shape)
     boxes = yolo_correct_boxes(box_xy, box_wh, input_shape, image_shape)
-    boxes = K.reshape(boxes, [-1, 4])
+    boxes = K.reshape(boxes, [-1, 4]) #这里好像默认batch为1了，所以评估时只能输入一张图片。
     box_scores = box_confidence * box_class_probs
     box_scores = K.reshape(box_scores, [-1, num_classes])
     return boxes, box_scores # box_number* 4,box_number*num_classes
@@ -274,6 +277,7 @@ def yolo_eval(yolo_outputs,
         class_boxes = tf.boolean_mask(boxes, mask[:, c])
         class_box_scores = tf.boolean_mask(box_scores[:, c], mask[:, c])
         # 非极大抑制，按照scores降序去掉box重合程度高的，由于scores与类别有关所以分类挑选
+        # 按照score降序排列，去除和已选择框iou过高的
         nms_index = tf.image.non_max_suppression(
             class_boxes, class_box_scores, max_boxes_tensor, iou_threshold=iou_threshold)
         # 获取非极大抑制后的结果
@@ -288,6 +292,7 @@ def yolo_eval(yolo_outputs,
     classes_ = K.concatenate(classes_, axis=0)
 
     return boxes_, scores_, classes_
+
 def dyolo_eval(yolo_outputs,
               anchors,
               num_classes,
@@ -347,6 +352,7 @@ def dyolo_eval(yolo_outputs,
 
     return boxes_, scores_, classes_
 
+# return y_ture (n,13,13,3,5+class_num)
 def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
     '''Preprocess true boxes to training input format
 

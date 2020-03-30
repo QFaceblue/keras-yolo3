@@ -25,8 +25,8 @@ class YOLO(object):
         "model_path": 'model_data/zdk_trained_weights_final.h5',
         "anchors_path": 'model_data/yolo_anchors.txt',
         "classes_path": 'model_data/drive_classes.txt',
-        "score": 0.3,
-        "iou": 0.45,
+        "score": 0.3, # 正样本的判断
+        "iou": 0.45, # 非极大值抑制
         "model_image_size": (416, 416),
         "gpu_num": 1,
     }
